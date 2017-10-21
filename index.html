@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>PKMNGO &bull; Gym badge progress checker</title>
+		<meta name="description" content="A tool for checking your Gym Badge progress" />
+		<meta property="og:url" content="https://qplanner.co.uk/tmp/pkmngo/" />
+		<meta property="og:type" content="website" />
+		<meta property="og:title" content="PKMNGO &bull; Gym badge progress checker" />
+		<meta property="og:description" content="A tool for checking your Gym Badge progress" />
+		<meta property="og:image" content="https://qplanner.co.uk/tmp/pkmngo/gymbadge-512.png" />
+		<meta name="twitter:card" content="summary" />
+		<meta name="twitter:title" content="PKMNGO &bull; Gym badge progress checker" />
+		<meta name="twitter:description" content="A tool for checking your Gym Badge progress" />
+		<meta name="twitter:url" content="https://qplanner.co.uk/tmp/pkmngo/" />
+		<meta name="twitter:image" content="https://qplanner.co.uk/tmp/pkmngo/gymbadge-512.png" />
+		<meta name="theme-color" content="#eeffeb">
+		<link rel="icon" type="image/png" href="gymbadge-16.png" sizes="16x16">
+		<link rel="icon" type="image/png" href="gymbadge-32.png" sizes="32x32">
+		<link rel="icon" type="image/png" href="gymbadge-96.png" sizes="96x96">
+		<link rel="icon" type="image/png" href="gymbadge-192.png" sizes="192x192">
+		<link rel="manifest" href="manifest.json">
+		<script type="text/javascript">
+			/* Quickly hacked together, enjoy the code quality */
+
+			//Add feature detection to onload (FileReader and canvas etc)
+			//It would be nice to support JPEG files
+			//This could script could be extended to scan the gym badges screen
+
+			var imgPreview;
+			var imgC;
+			var imgCTX;
+			var badgeCols = [
+				["Basic", 500, [220, 220, 220]],
+				["Bronze", 3500, [236, 200, 172]],
+				["Silver", 26000, [185, 213, 223]],
+				["Gold", 0, [255, 212, 88]]
+			];
+			var results;
+
+			onload = function() {
+				results = document.getElementById("results");
+				imgPreview = document.getElementById("imgPreview");
+
+				imgC = document.createElement("canvas");
+				imgCTX = imgC.getContext("2d", {alpha: false});
+			}
+			function loadNewImage() {
+				var files = document.getElementById("imgPicker").files;
+				// FileReader support
+				if (FileReader && files && files.length) {
+					var fR = new FileReader();
+					fR.onload = function () {
+						if (fR.result.substr(0, 16) == "data:image/jpeg;") {
+							setResult("JPEG screenshots are not supported at this time, sorry.", "Try a different image.");
+							return;
+						}
+						//Adding a setTimeout here seemed to make sure the image was actually ready for appraising. Odd, I know.
+						imgPreview.onload = function() { setTimeout(100, appraiseImage()) }
+						imgPreview.src = fR.result;
+						imgPreview.setAttribute("data-show", "");
+					}
+					fR.readAsDataURL(files[0]);
+				}
+			}
+
+			function appraiseImage() {
+				imgC.width = imgPreview.naturalWidth;
+				imgC.height = imgPreview.naturalHeight;
+				
+				imgCTX.drawImage(imgPreview, 0, 0, imgPreview.naturalWidth, imgPreview.naturalHeight);
+
+				/*
+				Colours to look out for:
+				254,255,254
+				255,255,255
+				232,232,232
+				21,232,219
+				We also have the issue of the blended end of the progress on the white section.
+				In that situation we should just keep going down until we find the full colour.
+				We should work out where the middle (vertically) of the bar is and use that for our measurements.
+				*/
+				var badge = getBadgeColour();
+				if (badge == -1) { 
+					setResult("Couldn't work out your badge level.", "Try a different image.");
+					return;
+				}
+
+				if (badge == 3) {
+					setResult("That's a lovely gold badge you have, well done.", "");
+					return;
+				}
+
+				var yPos = findY();
+				if (!yPos) {
+					setResult("Failed to find a progress bar.", "Try a different image.");
+					return;
+				}
+
+				var barInfo = getWidthAndPosition(yPos);
+				if (!barInfo) {
+					setResult("Failed to find a progress bar.", "Try a different image.");
+					return;
+				}
+				var barPercentish = Number(barInfo[1] / barInfo[0]).toFixed(2);
+				var currentEXP = (badgeCols[badge][1] - Math.round(badgeCols[badge][1] * (barInfo[1] / barInfo[0])));
+				/*
+				Feeding a gym Pokemon a berry 	10
+				Defeating a gym defender 	Formula = CP/100 (defeating a 1,000 CP defender will net 10 EXP)
+				Placing a Pokémon in a gym 	100
+				Defending a gym 	1 per minute per defending Pokemon
+				Winning a raid battle at that gym 	1000
+				*/
+				var levelUpDom = document.createDocumentFragment();
+
+				var tmpEle = document.createElement("h4");
+				tmpEle.textContent = "Here's a few ways you can level your badge up";
+				levelUpDom.appendChild(tmpEle);
+
+				//Raids
+				var raidsToGo = Math.ceil(currentEXP / 1000);
+				var tmpEle = document.createElement("div");
+				tmpEle.textContent = "Complete " + raidsToGo + " raid" + (raidsToGo !== 1 ? "s" : "");
+				levelUpDom.appendChild(tmpEle);
+
+				//Pokémon placements
+				var tmpEle = document.createElement("div");
+				tmpEle.textContent = "Place " + Math.ceil(currentEXP / 100) + " Pokémon in this gym";
+				levelUpDom.appendChild(tmpEle);
+
+				//Number of days and hours placed in the gym
+				var hoursToGo = Math.ceil(currentEXP / 60);
+				var daysToGo = Math.floor(hoursToGo / 24);
+				hoursToGo -= daysToGo * 24;
+				var dayStr = daysToGo > 0 ? daysToGo + " day" + (daysToGo !== 1 ? "s" : "") : false;
+				var hourStr = hoursToGo > 0 ? hoursToGo + " hour" + (hoursToGo !== 1 ? "s" : "") : false;
+				var timeArr = [];
+				if (dayStr) { timeArr.push(dayStr); }
+				if (hourStr) { timeArr.push(hourStr); }
+				var tmpEle = document.createElement("div");
+				tmpEle.textContent = "Have a Pokémon in the gym for " + timeArr.join(", ");
+				levelUpDom.appendChild(tmpEle);
+
+				//1500cp = 15bxp
+				var averageGymCP = 1500;
+				var battlesToGo = Math.ceil(currentEXP / (averageGymCP / 100));
+				var tmpEle = document.createElement("div");
+				tmpEle.textContent = "Defeat " + battlesToGo + " " + averageGymCP + "CP Pokémon in this gym";
+				levelUpDom.appendChild(tmpEle);
+
+				var berriesToGo = Math.ceil(currentEXP / 10);
+				var tmpEle = document.createElement("div");
+				tmpEle.textContent = "Feed Pokémon in this gym " + berriesToGo + (berriesToGo !== 1 ? " berries!" : " berry");
+				levelUpDom.appendChild(tmpEle);
+
+				setResult(
+					badgeCols[badge][0] + " badge at ~" + (barPercentish * 100) + "%",
+					"You need about " + currentEXP + ' more EXP (' + String.fromCharCode(177) + Math.ceil(badgeCols[badge][1] * (1 / barInfo[0])) + ")"
+				);
+				results.children[3].appendChild(levelUpDom);
+			}
+
+			function setResult(line1, line2) {
+				results.children[0].textContent = line1 || "";
+				results.children[2].textContent = line2 || "";
+				//Remove any additional information in the results section
+				while (results.children[3].firstChild) {
+					results.children[3].removeChild(results.children[3].firstChild);
+				}
+			}
+
+			function findY() {
+				var imgSlice = imgCTX.getImageData(Math.round(imgPreview.naturalWidth / 2), 0, 1, imgPreview.naturalHeight).data;
+				var pPixel = [0,0,0];
+				var dupeC = 0;
+				for (var i = 0; i < imgPreview.naturalHeight; i++) {
+				//Is it safer to go up as the photo disc image might coincidentally match?
+
+					//Look for the solid centre of the progress bar colours.
+					if (!(imgSlice[i * 4] == 21 || imgSlice[i * 4 + 1] == 232)) {
+						//do something about the previous set
+						if (dupeC >= 4) {
+							if ((pPixel[0] == 232 & pPixel[1] == 232 & pPixel[2] == 232) ||
+								(pPixel[0] == 21 & pPixel[1] == 232 & pPixel[2] == 219)) {
+								//console.log("Probably found the progress bar", (i - 1 - dupeC), (i - 1), pPixel);
+								return (i - 1) - Math.round(dupeC / 2);
+							}
+						}
+						dupeC = 0;
+						pPixel = imgSlice.slice(i * 4, i * 4 + 3);
+						continue;
+					} //Quickly move on if we're not in range
+
+					if (imgSlice[i * 4] == pPixel[0] && imgSlice[i * 4 + 1] == pPixel[1] && imgSlice[i * 4 + 2] == pPixel[2]) {
+						if (dupeC == 0) { dupeC = 1; }
+						dupeC++;
+					} else if (dupeC >= 4) {
+						//do something about the previous set
+						if ((pPixel[0] == 232 & pPixel[1] == 232 & pPixel[2] == 232) ||
+							(pPixel[0] == 21 & pPixel[1] == 232 & pPixel[2] == 219)) {
+							//console.log("Probably found the progress bar", (i - 1 - dupeC), (i - 1), pPixel);
+							return (i - 1) - Math.round(dupeC / 2);
+						}
+						//then reset stuff?
+						dupeC = 0;
+					} else {
+						dupeC = 0;
+					}
+					//So we're looking for 255, 232..., 255
+
+					pPixel = imgSlice.slice(i * 4, i * 4 + 3);
+				}
+				return false;
+			}
+			
+			function getWidthAndPosition(yPos) {
+				//Take a horizontal slice of the image at the given y coordinate
+				var imgSlice = imgCTX.getImageData(0, yPos, imgPreview.naturalWidth, 1).data;
+				var pPixel = [0,0,0]; //Previous pixel
+				var barLen = 0; //How long the progress bar seems to be
+				var maxCyan = 0; //How long the filled section of the progress bar seems to be
+
+				for (var i = 0; i < imgPreview.naturalWidth; i++) {
+					//if (!((imgSlice[i * 4 + 1] == 232 && imgSlice[i * 4] >= 21 && imgSlice[i * 4] < 40) || imgSlice[i * 4] == 232)) {
+					if (imgSlice[i * 4 + 1] != 232) {
+						if (barLen > 50) {
+							//probably found the width of the bar
+							return [barLen, Math.max(0, maxCyan - i + barLen)];
+						}
+						continue;
+					}
+
+					if (imgSlice[i * 4 + 1] == 232 && imgSlice[i * 4] >= 21 && imgSlice[i * 4] < 40) {
+						maxCyan = i;
+					}
+
+					barLen++;
+
+					pSlice = imgSlice.slice(i * 4, i * 4 + 3);
+				}
+				//We were unable to find the width of the progress bar
+				return false;
+			}
+			
+			function getBadgeColour() {
+				//Take a vertical slice of the image, right down the middle
+				var imgSlice = imgCTX.getImageData(Math.round(imgPreview.naturalWidth / 2), 0, 1, imgPreview.naturalHeight).data;
+				var cBadge = -1; //What we think the current badge level is
+				var dupeC = 0;
+				for (var i = imgPreview.naturalHeight - 1; i > 0; i--) { //Lets go up!
+					for (var b = 0; b < 4; b++) { //Test this pixel against all the badge colours
+						if (imgSlice[i * 4] == badgeCols[b][2][0] &&
+							imgSlice[i * 4 + 1] == badgeCols[b][2][1] &&
+							imgSlice[i * 4 + 2] == badgeCols[b][2][2]) {
+								if (dupeC >= 25) {
+									//We've found a badge!
+									return cBadge;
+								}
+							if (cBadge == b) {
+								cBadge = b;
+								dupeC++;
+							} else {
+								dupeC = 1;
+								cBadge = b;
+							}
+							continue;
+						}
+					}
+				}
+				return -1;
+			}
+		</script>
+		<style type="text/css" media="screen">
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+				background: #f7fff5 linear-gradient(135deg, #fff, #eeffeb);
+				color: #44696c;
+				font-size: medium;
+				text-align: center;
+				margin: 0;
+				display: -webkit-flex;
+				display: flex;
+				-webkit-flex-direction: column;
+				flex-direction: column;
+				height: 100%;
+			}
+			body, html { height: 100%; }
+			header {  }
+			footer {
+				color: #97abac;
+				font-weight: 500;
+				letter-spacing: 1px;
+				word-spacing: 2px;
+				font-size: xx-small;
+				font-weight: 500;
+				padding: 7px 0;
+				border-top: 1px solid #dcdcdc;
+			}
+			a {
+				padding: 7px 25px;
+				color: #44696c;
+				text-decoration-color: #dcdcdc;
+			}
+			h3 { margin: 7px auto 12px; }
+			h4 { margin: 5px auto; }
+			#imgPreview {
+				max-height: 50vh;
+				border-radius: 4px;
+				box-shadow: 0 1px 5px rgba(0,0,0,.33);
+				padding: 8px;
+				margin: 15px 0;
+				background: #fff;
+			}
+			#imgPreview:not([data-show]) { display: none; }
+
+			header, footer, #pageContent {
+				-webkit-flex: 0 0 auto;
+				-ms-flex: 0 0 auto;
+				flex: 0 0 auto;
+				-webkit-align-self: stretch;
+				-ms-flex-item-align: stretch;
+				align-self: stretch;
+			}
+
+			#page, .spacer {
+				-webkit-flex: 1 1 auto;
+				-ms-flex: 1 1 auto;
+				flex: 1 1 auto;
+				-webkit-align-self: stretch;
+				-ms-flex-item-align: stretch;
+				align-self: stretch;
+				overflow-y: auto;
+			}
+			#page {
+				display: -webkit-flex;
+				display: flex;
+				-webkit-flex-direction: column;
+				flex-direction: column;
+			}
+
+			.fileContainer {
+				overflow: hidden;
+				position: relative;
+				background: linear-gradient(135deg,rgba(162,219,150,1) 0%,rgba(36,204,170,1) 100%);
+				color: #fff;
+				font-weight: 500;
+				border-radius: 50px;
+				padding: 12.5px 30px;
+				transition: font-size .1s linear;
+			}
+			.fileContainer:active { font-size: 95%; transition: font-size .1s linear; }
+			.fileContainer::selection { background:transparent; }
+			.fileContainer {
+				-moz-user-select: -moz-none;
+				-webkit-user-select: none;
+				user-select: none;
+			}
+
+			#imgPicker {
+				cursor: pointer;
+				display: block;
+				font-size: 999px;
+				min-height: 100%;
+				min-width: 100%;
+				opacity: 0;
+				position: absolute;
+				right: 0;
+				text-align: right;
+				top: 0;
+			}
+
+			#pickerHost { 
+				margin: 0 auto;
+				padding: 12px;
+				overflow: hidden;
+			}
+
+			#results > div { margin-bottom: 15px; }
+		</style>
+	</head>
+	<body>
+		<header><h3>Gym badge progress checker</h3></header>
+		<section id="page">
+			<div class="spacer"></div>
+			<div id="pageContent">
+				<div id="pickerHost"><label class="fileContainer">
+					Select a screen shot to appraise
+					<input id="imgPicker" type="file" accept="image/*" onchange="loadNewImage()" />
+				</label></div>
+				<div id="imgPreviewHost"><img id="imgPreview" alt="user image" /></div>
+				<div id="results"><span></span><br /><span></span><div></div></div>
+			</div>
+			<div class="spacer"></div>
+		</section>
+		<footer><a href="https://github.com/QOAL/GymBadge">Created by QOAL</a></footer>
+	</body>
+</html>
