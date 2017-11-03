@@ -38,6 +38,9 @@
 				["Silver", 26000, [185, 213, 223]],
 				["Gold", 0, [255, 212, 88]]
 			];
+			var bYoff = 100;
+			var fuzzyMode = false;
+			var fuzz = 4;
 			var results;
 
 			onload = function() {
@@ -54,8 +57,11 @@
 					var fR = new FileReader();
 					fR.onload = function () {
 						if (fR.result.substr(0, 16) == "data:image/jpeg;") {
-							setResult("JPEG screenshots are not supported at this time, sorry.", "Try a different image.");
-							return;
+							//setResult("JPEG screenshots are not supported at this time, sorry.", "Try a different image.");
+							fuzzyMode = true;
+							//return;
+						} else {
+							fuzzyMode = false;
 						}
 						//Adding a setTimeout here seemed to make sure the image was actually ready for appraising. Odd, I know.
 						imgPreview.onload = function() { setTimeout(100, appraiseImage()) }
@@ -69,8 +75,10 @@
 			function appraiseImage() {
 				imgC.width = imgPreview.naturalWidth;
 				imgC.height = imgPreview.naturalHeight;
-				
+
 				imgCTX.drawImage(imgPreview, 0, 0, imgPreview.naturalWidth, imgPreview.naturalHeight);
+
+				bYoff = ~~((imgPreview.naturalHeight / 1080) * 96);
 
 				/*
 				Colours to look out for:
@@ -83,7 +91,7 @@
 				We should work out where the middle (vertically) of the bar is and use that for our measurements.
 				*/
 				var badge = getBadgeColour();
-				if (badge == -1) { 
+				if (badge == -1) {
 					setResult("Couldn't work out your badge level.", "Try a different image.");
 					return;
 				}
@@ -95,6 +103,17 @@
 
 				var yPos = findY();
 				if (!yPos) {
+					//Have a better look for the progress
+					//The transition between the completed element of the bar and the full bar might be causing issues
+					var offset = 3;
+					while (!yPos && offset < 10) {
+						yPos = findY(offset);
+						if (yPos) { break; }
+						offset = -offset;
+						if (offset > 0) { offset += 3; }
+					}
+				}
+				if (!yPos) {
 					setResult("Failed to find a progress bar.", "Try a different image.");
 					return;
 				}
@@ -104,7 +123,8 @@
 					setResult("Failed to find a progress bar.", "Try a different image.");
 					return;
 				}
-				var barPercentish = Number(barInfo[1] / barInfo[0]).toFixed(2);
+				var barPercentish = ~~((barInfo[1] / barInfo[0]).toFixed(2) * 100);
+				//Did you know that 0.14 * 100 = 14.000000000000002? It's true in a 53bit world!
 				var currentEXP = (badgeCols[badge][1] - Math.round(badgeCols[badge][1] * (barInfo[1] / barInfo[0])));
 				/*
 				Feeding a gym Pokemon a berry 	10
@@ -156,8 +176,8 @@
 				levelUpDom.appendChild(tmpEle);
 
 				setResult(
-					badgeCols[badge][0] + " badge at ~" + (barPercentish * 100) + "%",
-					"You need about " + currentEXP + ' more EXP (' + String.fromCharCode(177) + Math.ceil(badgeCols[badge][1] * (1 / barInfo[0])) + ")"
+					badgeCols[badge][0] + " badge at ~" + barPercentish + "%",
+					"You need about " + currentEXP + ' more BXP (' + String.fromCharCode(177) + Math.ceil(badgeCols[badge][1] * (1 / barInfo[0])) + ")"
 				);
 				results.children[3].appendChild(levelUpDom);
 			}
@@ -171,37 +191,39 @@
 				}
 			}
 
-			function findY() {
-				var imgSlice = imgCTX.getImageData(Math.round(imgPreview.naturalWidth / 2), 0, 1, imgPreview.naturalHeight).data;
+			function findY(offset) {
+				//This function is ugly with the duplicated code.
+				if (!offset) { offset = 0; }
+				var imgSlice = imgCTX.getImageData(Math.round(imgPreview.naturalWidth / 2) + offset, 0, 1, imgPreview.naturalHeight).data;
+				var cPixel = [0,0,0];
 				var pPixel = [0,0,0];
 				var dupeC = 0;
-				for (var i = 0; i < imgPreview.naturalHeight; i++) {
-				//Is it safer to go up as the photo disc image might coincidentally match?
+				//Is it safer to go up as the photo disc image might coincidentally match
+				for (var i = imgPreview.naturalHeight - 1 - bYoff; i > 0; i--) {
+					cPixel = [imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]]; //imgSlice.slice(i * 4, i * 4 + 3); //Slice is slower?
 
 					//Look for the solid centre of the progress bar colours.
-					if (!(imgSlice[i * 4] == 21 || imgSlice[i * 4 + 1] == 232)) {
+					if (!(closeEnough(cPixel[0], 21) || closeEnough(cPixel[1], 232))) {
 						//do something about the previous set
 						if (dupeC >= 4) {
-							if ((pPixel[0] == 232 & pPixel[1] == 232 & pPixel[2] == 232) ||
-								(pPixel[0] == 21 & pPixel[1] == 232 & pPixel[2] == 219)) {
-								//console.log("Probably found the progress bar", (i - 1 - dupeC), (i - 1), pPixel);
-								return (i - 1) - Math.round(dupeC / 2);
+							if (closeEnoughRGB(pPixel, [232, 232, 232]) || closeEnoughRGBF(pPixel, [21, 232, 219])) {
+								//Probably found the progress bar
+								return (i - 1) + Math.round(dupeC / 2);
 							}
 						}
 						dupeC = 0;
-						pPixel = imgSlice.slice(i * 4, i * 4 + 3);
+						pPixel = cPixel.slice(0);
 						continue;
 					} //Quickly move on if we're not in range
 
-					if (imgSlice[i * 4] == pPixel[0] && imgSlice[i * 4 + 1] == pPixel[1] && imgSlice[i * 4 + 2] == pPixel[2]) {
+					if (closeEnoughRGB(cPixel, pPixel, fuzzyMode)) {
 						if (dupeC == 0) { dupeC = 1; }
 						dupeC++;
 					} else if (dupeC >= 4) {
 						//do something about the previous set
-						if ((pPixel[0] == 232 & pPixel[1] == 232 & pPixel[2] == 232) ||
-							(pPixel[0] == 21 & pPixel[1] == 232 & pPixel[2] == 219)) {
-							//console.log("Probably found the progress bar", (i - 1 - dupeC), (i - 1), pPixel);
-							return (i - 1) - Math.round(dupeC / 2);
+						if (closeEnoughRGB(pPixel, [232, 232, 232]) || closeEnoughRGBF(pPixel, [21, 232, 219])) {
+							//Probably found the progress bar
+							return (i - 1) + Math.round(dupeC / 2);
 						}
 						//then reset stuff?
 						dupeC = 0;
@@ -210,54 +232,60 @@
 					}
 					//So we're looking for 255, 232..., 255
 
-					pPixel = imgSlice.slice(i * 4, i * 4 + 3);
+					pPixel = cPixel.slice(0);
 				}
 				return false;
 			}
-			
+
 			function getWidthAndPosition(yPos) {
 				//Take a horizontal slice of the image at the given y coordinate
 				var imgSlice = imgCTX.getImageData(0, yPos, imgPreview.naturalWidth, 1).data;
-				var pPixel = [0,0,0]; //Previous pixel
 				var barLen = 0; //How long the progress bar seems to be
 				var maxCyan = 0; //How long the filled section of the progress bar seems to be
 
 				for (var i = 0; i < imgPreview.naturalWidth; i++) {
-					//if (!((imgSlice[i * 4 + 1] == 232 && imgSlice[i * 4] >= 21 && imgSlice[i * 4] < 40) || imgSlice[i * 4] == 232)) {
-					if (imgSlice[i * 4 + 1] != 232) {
+					var pixelVal = imgSlice[i * 4] + imgSlice[i * 4 + 1] + imgSlice[i * 4 + 2];
+					//If the colour channels add up to more than ~700 then it's probably too bright to be the progress bar core.
+					var stopChecking = pixelVal > 706;
+					//Because some jpeg compression settings add a dark then light fringe between coloured areas,
+					// we can fail to detect the true length of the bar.
+					//This is mostly due to the light band of the fringe pushing us over 700.
+					if (fuzzyMode && barLen > 2 && stopChecking) {
+						var nextPixelOkay = imgSlice[(i + 1) * 4] + imgSlice[(i + 1) * 4 + 1] + imgSlice[(i + 1) * 4 + 2] < 706;
+						if (nextPixelOkay) { stopChecking = false; }
+					}
+					if (stopChecking) {
 						if (barLen > 50) {
 							//probably found the width of the bar
 							return [barLen, Math.max(0, maxCyan - i + barLen)];
+						} else {
+							barLen = 0;
 						}
 						continue;
 					}
 
-					if (imgSlice[i * 4 + 1] == 232 && imgSlice[i * 4] >= 21 && imgSlice[i * 4] < 40) {
+					if (imgSlice[i * 4] < 90 && imgSlice[i * 4 + 1] + imgSlice[i * 4 + 2] < 500) {
 						maxCyan = i;
 					}
 
 					barLen++;
-
-					pSlice = imgSlice.slice(i * 4, i * 4 + 3);
 				}
 				//We were unable to find the width of the progress bar
 				return false;
 			}
-			
+
 			function getBadgeColour() {
 				//Take a vertical slice of the image, right down the middle
 				var imgSlice = imgCTX.getImageData(Math.round(imgPreview.naturalWidth / 2), 0, 1, imgPreview.naturalHeight).data;
 				var cBadge = -1; //What we think the current badge level is
 				var dupeC = 0;
-				for (var i = imgPreview.naturalHeight - 1; i > 0; i--) { //Lets go up!
+				for (var i = imgPreview.naturalHeight - 1 - bYoff; i > 0; i--) { //Lets go up!
 					for (var b = 0; b < 4; b++) { //Test this pixel against all the badge colours
-						if (imgSlice[i * 4] == badgeCols[b][2][0] &&
-							imgSlice[i * 4 + 1] == badgeCols[b][2][1] &&
-							imgSlice[i * 4 + 2] == badgeCols[b][2][2]) {
-								if (dupeC >= 25) {
-									//We've found a badge!
-									return cBadge;
-								}
+						if (closeEnoughRGB([imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]], badgeCols[b][2])) {
+							if (dupeC >= 25) {
+								//We've found a badge!
+								return cBadge;
+							}
 							if (cBadge == b) {
 								cBadge = b;
 								dupeC++;
@@ -270,6 +298,21 @@
 					}
 				}
 				return -1;
+			}
+
+			function closeEnoughRGB(pixelA, pixelB, fringe) {
+				var f = fringe ? fuzz * 3 : fuzz;
+				return ((pixelA[0] >= pixelB[0] - f && pixelA[0] <= pixelB[0] + f) &&
+					(pixelA[1] >= pixelB[1] - f && pixelA[1] <= pixelB[1] + f) &&
+					(pixelA[2] >= pixelB[2] - f && pixelA[2] <= pixelB[2] + f));
+			}
+			function closeEnoughRGBF(pixelA, pixelB) {
+				return ((pixelA[0] >= pixelB[0] - 3 && pixelA[0] <= pixelB[0] + 68) &&
+					(pixelA[1] >= pixelB[1] - 18 && pixelA[1] <= pixelB[1] + 3) &&
+					(pixelA[2] >= pixelB[2] - 11 && pixelA[2] <= pixelB[2] + 3));
+			}
+			function closeEnough(A, B) {
+				return (A >= B - fuzz && A <= B + fuzz);
 			}
 		</script>
 		<style type="text/css" media="screen">
