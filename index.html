@@ -25,13 +25,17 @@
 		<script type="text/javascript">
 			/* Quickly hacked together, enjoy the code quality */
 
-			//Add feature detection to onload (FileReader and canvas etc)
-			//It would be nice to support JPEG files
-			//This could script could be extended to scan the gym badges screen
+			//Add feature detection to onload (Calc, FileReader and canvas etc)
+			//Improve JPEG support
+			//Tidy up code
+			//Build index.html from component files
+			//Add translations
 
 			var imgPreview;
 			var imgC;
 			var imgCTX;
+			var results;
+			var percentages;
 			var badgeCols = [
 				["Basic", 500, [220, 220, 220]],
 				["Bronze", 3500, [236, 200, 172]],
@@ -41,15 +45,47 @@
 			var bYoff = 100;
 			var fuzzyMode = false;
 			var fuzz = 4;
-			var results;
+			var minCore = 3; //Minimum height of a progress bar core we'll accept
+			var appraisalMode = false; //Badge or list
+			var imageScaleVal = 1;
+			var tmpXoffset = 0; //Used for an extra check when we find a zero width progress bar to measure
+
+			var yList = [];
+			var barList = [];
+			//We should cache image slices if they'll be used by more than one pass
+			//This will only be for horizontal slices
+			var sliceList = {hori:[], vert:[]};
+			var previouslySelected = false; //Used to remember the last selected badge in list appraisal mode
 
 			onload = function() {
 				results = document.getElementById("results");
+				percentages = document.getElementById("percentages");
 				imgPreview = document.getElementById("imgPreview");
 
 				imgC = document.createElement("canvas");
 				imgCTX = imgC.getContext("2d", {alpha: false});
+
+				document.getElementById("modeBadge").addEventListener("click", changeMode);
+				document.getElementById("modeList").addEventListener("click", changeMode);
 			}
+
+			function changeMode(e) {
+				var oldMode = appraisalMode;
+				appraisalMode = e.target.id !== "modeBadge";
+				document.getElementById("modeBadge").setAttribute("class", !appraisalMode ? "selected" : "");
+				document.getElementById("modeList").setAttribute("class", appraisalMode ? "selected" : "");
+				document.body.setAttribute("class", appraisalMode ? "list" : "");
+				if (oldMode != appraisalMode && imgPreview.hasAttribute("data-show")) {
+					imgPreview.src = "";
+					imgPreview.removeAttribute("data-show");
+					setResult();
+					while (percentages.firstChild) {
+						percentages.removeChild(percentages.firstChild);
+					}
+				}
+				document.getElementById("results").style.display = appraisalMode ? "none" : "";
+			}
+
 			function loadNewImage() {
 				var files = document.getElementById("imgPicker").files;
 				// FileReader support
@@ -64,7 +100,7 @@
 							fuzzyMode = false;
 						}
 						//Adding a setTimeout here seemed to make sure the image was actually ready for appraising. Odd, I know.
-						imgPreview.onload = function() { setTimeout(100, appraiseImage()) }
+						imgPreview.onload = function() { setTimeout(1, appraisalMode ? appraiseImageList() : appraiseImage()) }
 						imgPreview.src = fR.result;
 						imgPreview.setAttribute("data-show", "");
 					}
@@ -72,13 +108,24 @@
 				}
 			}
 
-			function appraiseImage() {
+			function prepareCanvas() {
 				imgC.width = imgPreview.naturalWidth;
 				imgC.height = imgPreview.naturalHeight;
 
 				imgCTX.drawImage(imgPreview, 0, 0, imgPreview.naturalWidth, imgPreview.naturalHeight);
 
-				bYoff = ~~((imgPreview.naturalHeight / 1080) * 96);
+				//Skip over the android navigation bar at the bottom of the screen
+				//The alternative to this is to manually check the image for the presence of one and measure its height
+				//Which would be scan up the left side while we're on a solid colour
+				//Then scan up the right as long as we're matching the left colour
+				imageScaleVal = imgPreview.naturalWidth / 720;
+				bYoff = ~~(imageScaleVal * 96);
+
+				imageMiddle = Math.round(imgPreview.naturalWidth / 2);
+			}
+
+			function appraiseImage() {
+				prepareCanvas();
 
 				/*
 				Colours to look out for:
@@ -123,9 +170,14 @@
 					setResult("Failed to find a progress bar.", "Try a different image.");
 					return;
 				}
-				var barPercentish = ~~((barInfo[1] / barInfo[0]).toFixed(2) * 100);
+
+				buildBadgeResults(barInfo[0], barInfo[1], badge, barInfo[2]);
+			}
+
+			function buildBadgeResults(barLen, progressLen, badgeID, unsure) {
+				var barPercentish = Math.round((progressLen / barLen) * 100);
 				//Did you know that 0.14 * 100 = 14.000000000000002? It's true in a 53bit world!
-				var currentEXP = (badgeCols[badge][1] - Math.round(badgeCols[badge][1] * (barInfo[1] / barInfo[0])));
+				var currentEXP = (badgeCols[badgeID][1] - Math.round(badgeCols[badgeID][1] * (progressLen / barLen)));
 				/*
 				Feeding a gym Pokemon a berry 	10
 				Defeating a gym defender 	Formula = CP/100 (defeating a 1,000 CP defender will net 10 EXP)
@@ -134,6 +186,12 @@
 				Winning a raid battle at that gym 	1000
 				*/
 				var levelUpDom = document.createDocumentFragment();
+
+				if (unsure == 1) {
+					var tmpEle = document.createElement("small");
+					tmpEle.textContent = "(There may be a Pokémon obscuring the progress bar)";
+					levelUpDom.appendChild(tmpEle);
+				}
 
 				var tmpEle = document.createElement("h4");
 				tmpEle.textContent = "Here's a few ways you can level your badge up";
@@ -176,8 +234,8 @@
 				levelUpDom.appendChild(tmpEle);
 
 				setResult(
-					badgeCols[badge][0] + " badge at ~" + barPercentish + "%",
-					"You need about " + currentEXP + ' more BXP (' + String.fromCharCode(177) + Math.ceil(badgeCols[badge][1] * (1 / barInfo[0])) + ")"
+					badgeCols[badgeID][0] + (unsure == 2 ? "?" : "") + " badge at ~" + barPercentish + "%",
+					"You need about " + currentEXP + ' more BXP (' + String.fromCharCode(177) + Math.ceil(badgeCols[badgeID][1] * (1 / barLen)) + ")"
 				);
 				results.children[3].appendChild(levelUpDom);
 			}
@@ -194,18 +252,19 @@
 			function findY(offset) {
 				//This function is ugly with the duplicated code.
 				if (!offset) { offset = 0; }
-				var imgSlice = imgCTX.getImageData(Math.round(imgPreview.naturalWidth / 2) + offset, 0, 1, imgPreview.naturalHeight).data;
+				tmpXoffset = offset;
+				var imgSlice = imgCTX.getImageData(imageMiddle + offset, 0, 1, imgPreview.naturalHeight).data;
 				var cPixel = [0,0,0];
 				var pPixel = [0,0,0];
 				var dupeC = 0;
 				//Is it safer to go up as the photo disc image might coincidentally match
 				for (var i = imgPreview.naturalHeight - 1 - bYoff; i > 0; i--) {
-					cPixel = [imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]]; //imgSlice.slice(i * 4, i * 4 + 3); //Slice is slower?
+					cPixel = [imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]]; //imgSlice.slice(i * 4, i * 4 + 3); //Slice is slower
 
 					//Look for the solid centre of the progress bar colours.
 					if (!(closeEnough(cPixel[0], 21) || closeEnough(cPixel[1], 232))) {
 						//do something about the previous set
-						if (dupeC >= 4) {
+						if (dupeC >= minCore) {
 							if (closeEnoughRGB(pPixel, [232, 232, 232]) || closeEnoughRGBF(pPixel, [21, 232, 219])) {
 								//Probably found the progress bar
 								return (i - 1) + Math.round(dupeC / 2);
@@ -213,13 +272,14 @@
 						}
 						dupeC = 0;
 						pPixel = cPixel.slice(0);
+						//pPixel = imgSlice.slice(i * 4, i * 4 + 3);
 						continue;
 					} //Quickly move on if we're not in range
 
 					if (closeEnoughRGB(cPixel, pPixel, fuzzyMode)) {
 						if (dupeC == 0) { dupeC = 1; }
 						dupeC++;
-					} else if (dupeC >= 4) {
+					} else if (dupeC >= minCore) {
 						//do something about the previous set
 						if (closeEnoughRGB(pPixel, [232, 232, 232]) || closeEnoughRGBF(pPixel, [21, 232, 219])) {
 							//Probably found the progress bar
@@ -237,50 +297,99 @@
 				return false;
 			}
 
-			function getWidthAndPosition(yPos) {
+			function getWidthAndPosition(yPos, stop) {
 				//Take a horizontal slice of the image at the given y coordinate
 				var imgSlice = imgCTX.getImageData(0, yPos, imgPreview.naturalWidth, 1).data;
 				var barLen = 0; //How long the progress bar seems to be
 				var maxCyan = 0; //How long the filled section of the progress bar seems to be
+				var finishedCyan = false; //Are we out of the completed section?
+				var halfLen = 0; //The length of the left side of the progress bar
+				//I'm not sure if this is correct, or if someone sent me a cropped screenshot once
+				//var expectedWidth = (148 / 720) * imgPreview.naturalWidth;
 
-				for (var i = 0; i < imgPreview.naturalWidth; i++) {
+
+				var xO = Math.floor(imgPreview.naturalWidth / 2);
+				//Scan left
+				for (var i = xO; i > 0; i--) {
 					var pixelVal = imgSlice[i * 4] + imgSlice[i * 4 + 1] + imgSlice[i * 4 + 2];
-					//If the colour channels add up to more than ~700 then it's probably too bright to be the progress bar core.
+
 					var stopChecking = pixelVal > 706;
 					//Because some jpeg compression settings add a dark then light fringe between coloured areas,
 					// we can fail to detect the true length of the bar.
 					//This is mostly due to the light band of the fringe pushing us over 700.
-					if (fuzzyMode && barLen > 2 && stopChecking) {
+					if (fuzzyMode && stopChecking) {
 						var nextPixelOkay = imgSlice[(i + 1) * 4] + imgSlice[(i + 1) * 4 + 1] + imgSlice[(i + 1) * 4 + 2] < 706;
 						if (nextPixelOkay) { stopChecking = false; }
 					}
-					if (stopChecking) {
-						if (barLen > 50) {
-							//probably found the width of the bar
-							return [barLen, Math.max(0, maxCyan - i + barLen)];
-						} else {
-							barLen = 0;
+
+					//if (pixelVal < 707) {
+					if (!stopChecking) {
+						if (imgSlice[i * 4] < 90) {
+							maxCyan++;
 						}
-						continue;
+						barLen++;
+						xL = i;
+					} else {
+						//We're at this end of the progress bar
+						break;
 					}
-
-					if (imgSlice[i * 4] < 90 && imgSlice[i * 4 + 1] + imgSlice[i * 4 + 2] < 500) {
-						maxCyan = i;
-					}
-
-					barLen++;
 				}
-				//We were unable to find the width of the progress bar
-				return false;
+
+				halfLen = barLen; //We should expect barLen to be halfLen * 2 (+/- ~2)
+
+				//Scan right
+				for (var i = xO + 1; i < imgPreview.naturalWidth; i++) {
+					var pixelVal = imgSlice[i * 4] + imgSlice[i * 4 + 1] + imgSlice[i * 4 + 2];
+
+					var stopChecking = pixelVal > 706;
+					//Because some jpeg compression settings add a dark then light fringe between coloured areas,
+					// we can fail to detect the true length of the bar.
+					//This is mostly due to the light band of the fringe pushing us over 700.
+					if (fuzzyMode && stopChecking) {
+						var nextPixelOkay = imgSlice[(i + 1) * 4] + imgSlice[(i + 1) * 4 + 1] + imgSlice[(i + 1) * 4 + 2] < 706;
+						if (nextPixelOkay) { stopChecking = false; }
+					}
+
+					//if (pixelVal < 707) {
+					if (!stopChecking) {
+						if (imgSlice[i * 4] < 90 && !finishedCyan) {
+							maxCyan++;
+						} else {
+							finishedCyan = true;
+						}
+						barLen++;
+					} else {
+						//We're at this end of the progress bar
+						break;
+					}
+				}
+
+				//If the progress bar is really long then we probably have a pokemon overlapping it
+				var unsure = false;
+				if (barLen > halfLen * 2 + fuzz) {
+					barLen = halfLen * 2;
+					unsure = 1;
+				}
+
+				if (barLen == 0 && !stop) {
+					//Go round again, but a little to the right
+					//This fixes an issue where the anti-aliasing on "ARENA-AKTIVITÄT"
+					//can match the colour we're looking for. (The left side of the K in this case)
+					return getWidthAndPosition(findY(tmpXoffset + 1), true);
+				} else if (barLen == 0) {
+					return false;
+				} else {
+					return [barLen, maxCyan, unsure];
+				}
 			}
 
 			function getBadgeColour() {
 				//Take a vertical slice of the image, right down the middle
-				var imgSlice = imgCTX.getImageData(Math.round(imgPreview.naturalWidth / 2), 0, 1, imgPreview.naturalHeight).data;
+				var imgSlice = imgCTX.getImageData(imageMiddle, 0, 1, imgPreview.naturalHeight).data;
 				var cBadge = -1; //What we think the current badge level is
 				var dupeC = 0;
 				for (var i = imgPreview.naturalHeight - 1 - bYoff; i > 0; i--) { //Lets go up!
-					for (var b = 0; b < 4; b++) { //Test this pixel against all the badge colours
+					for (var b = 0; b < 4; b++) {
 						if (closeEnoughRGB([imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]], badgeCols[b][2])) {
 							if (dupeC >= 25) {
 								//We've found a badge!
@@ -298,6 +407,243 @@
 					}
 				}
 				return -1;
+			}
+
+			function appraiseImageList() {
+				prepareCanvas();
+				barList = [];
+				previouslySelected = false;
+
+				//3 columns of badges
+				//Look around with maybe 5 or 10 pixel offsets
+				//The main profile page has the columns more squished towards the middle
+
+				//Remember: Someone is bound to have enough gold medals to not have a single progress bar in an image
+
+				var colOffset = Math.round(imgPreview.naturalWidth / 3);
+				var colMiddle = Math.round(imgPreview.naturalWidth / 6);
+				for (var i = 1; i < 4; i++) {
+					var yPos = false;
+					//console.log((colOffset * i) - colMiddle, colOffset, i, colMiddle, colOffset * i);
+					yPos = findYList((colOffset * i) - colMiddle);
+					/*if (!yPos) {
+						var offset = 3;
+						while (!yPos && offset < 10) {
+							yPos = findY((colOffset * i) - colMiddle + offset);
+							if (yPos) { break; }
+							offset = -offset;
+							if (offset > 0) { offset += 3; }
+						}
+					}*/
+					//if (yPos) { yList.push(yPos); }
+				}
+				buildResults();
+
+				//Clear the sliceList
+				sliceList = {hori:[], vert:[]};
+			}
+
+			function findYList(offset) {
+				if (!offset) { offset = 0; }
+
+				if (sliceList.vert[offset]) {
+					var imgSlice = sliceList.vert[offset];
+				} else {
+					sliceList.vert[offset] = imgCTX.getImageData(offset, 0, 1, imgPreview.naturalHeight).data;
+					var imgSlice = sliceList.vert[offset];
+				}
+				var cPixel = [0,0,0];
+				var dupeC = 0;
+
+				var yOffset = imgPreview.naturalHeight - 1 - bYoff;
+				//Is it safer to go up as the photo disc image might coincidentally match?
+				//for (var i = yOffset - 1; i > 0; i--) {
+				for (var i = yOffset; i > 0; i--) {
+					cPixel = [imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]];
+
+					//Look for the solid centre of the progress bar colours.
+					if (closeEnoughRGB(cPixel, [204, 204, 204]) || closeEnoughRGBF(cPixel, [21, 232, 219])) {
+						dupeC++;
+					} else {
+						if (dupeC >= minCore) {
+							measureBar(offset, Math.round(i + 1 + (dupeC / 2)), i + dupeC + 2);
+							//We've finished measuring one progress bar, but lets keep looking
+						}
+						dupeC = 0;
+					}
+				}
+			}
+
+			function measureBar(xO, yO, barBottom) {
+				//Look left, then right across a point to find the progress bar's size
+				if (!xO || !yO) { return false; }
+
+				if (sliceList.hori[yO]) {
+					var imgSlice = sliceList.hori[yO];
+				} else {
+					sliceList.hori[yO] = imgCTX.getImageData(0, yO, imgPreview.naturalWidth, 1).data;
+					var imgSlice = sliceList.hori[yO];
+				}
+				var barLen = 0; //How long the progress bar seems to be
+				var maxCyan = 0; //How long the filled section of the progress bar seems to be
+				var panicIfMoreCyan = false; //As we measure in two parts, we can detect a broken filled progress bar
+				var xL = 0;
+
+				//Scan left
+				for (var i = xO; i > 0; i--) {
+					var pixelVal = imgSlice[i * 4] + imgSlice[i * 4 + 1] + imgSlice[i * 4 + 2];
+					if (pixelVal < 650) {
+						if (imgSlice[i * 4] < 90) {
+							maxCyan++;//?
+						}
+						barLen++;
+						xL = i;
+					} else {
+						//We're at this end of the progress bar
+						break;
+					}
+				}
+
+				if (maxCyan != barLen) { panicIfMoreCyan = true; }
+
+				//Scan right
+				for (var i = xO + 1; i < imgPreview.naturalWidth; i++) {
+					var pixelVal = imgSlice[i * 4] + imgSlice[i * 4 + 1] + imgSlice[i * 4 + 2];
+					if (pixelVal < 650) {
+						if (imgSlice[i * 4] < 90) {
+							maxCyan++;//?
+							if (panicIfMoreCyan) {
+								console.log("Uhhh did we measure the wrong thing?");
+							}
+						}
+						barLen++;
+					} else {
+						//We're at this end of the progress bar
+						break;
+					}
+				}
+
+				//Bonus, lets have a look for the badge colour
+				//This is trickier than in the other mode
+				//We don't have the luxury of a large colour area to look at
+				//Instead we can look at the length of the badge below the progress bar
+				//@ 720x1280, rank, height
+				//Basic, 1-2px
+				//Bronze, 7px
+				//Silver, 12px
+				//Actually we can look at the red channel and compare it to the other two.
+				//Red being the dominate colour = Bronze, otherwise it's silver (blue channel)
+				var middleOfBar = xL + Math.round(barLen / 2);
+				if (sliceList.vert[middleOfBar]) {
+					var imgSlice = sliceList.vert[middleOfBar];
+				} else {
+					sliceList.vert[middleOfBar] = imgCTX.getImageData(middleOfBar, 0, 1, imgPreview.naturalHeight).data;
+					var imgSlice = sliceList.vert[middleOfBar];
+				}
+				var badgeCol = -1;
+				var unsure = false;
+				//We need to start after the core colour, then if we're on white wait until it the colour change.
+				//The bar could also be filled in, so there wouldn't be a white outer to the progress bar
+				var couldStillBeInBar = true;
+				var cPixel = [0,0,0];
+				var channelVals = [0,0,0];
+				var channelCount = 0;
+				for (var i = barBottom; i < imgPreview.naturalHeight; i++) {
+					cPixel = [imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]];
+					var pixelVal = cPixel[0] + cPixel[1] + cPixel[2];
+					//220,220,200 is from bilinear resizing of the UI on high res phones
+					//This is not ideal
+					if (couldStillBeInBar && (closeEnoughRGBF(cPixel, [21, 232, 219]) || closeEnoughRGB(cPixel, [255, 255, 255]) || closeEnoughRGB(cPixel, [220, 220, 220]))) {
+						continue;
+					} else if (pixelVal < 715) {
+						channelCount++;
+						channelVals[0] += cPixel[0];
+						channelVals[1] += cPixel[1];
+						channelVals[2] += cPixel[2];
+						couldStillBeInBar = false;
+					} else if (pixelVal >= 715 && !couldStillBeInBar) {
+						//Stop measuring
+						break;
+					} else {
+						couldStillBeInBar = false;
+					}
+				}
+
+				var probablySilver = ((channelVals[0] + channelVals[1]) / 2 < channelVals[2]);
+				var probablyBronze = ((channelVals[2] + channelVals[2]) / 2 < channelVals[0]);
+				//12 for silver, 7 for bronze, 2 for basic
+				if (channelCount >= (imageScaleVal * 11) && probablySilver) {
+					//Silver
+					badgeCol = 2;
+				} else if (channelCount >= (imageScaleVal * 6) && channelCount <= (imageScaleVal * 8) && probablyBronze) {
+					//Bronze
+					badgeCol = 1;
+				} else if (channelCount > (imageScaleVal * 3)) {
+					if (probablySilver) {
+						badgeCol = 2;
+					} else if (probablyBronze) {
+						badgeCol = 1;
+					} else {
+						badgeCol = -1;
+					}
+					unsure = 2;
+				} else {
+					//Probably basic, but we might want to check stuff?
+					badgeCol = 0;
+				}
+
+				barList.push([yO, xL, barLen, maxCyan, Math.round((maxCyan / barLen) * 100), badgeCol, unsure]);
+			}
+
+			function buildResults() {
+				//Remove any pre-existing results
+				/*while (results.children[3].firstChild) {
+					results.children[3].removeChild(results.children[3].firstChild);
+				}*/
+				//And any percentage elements
+				while (percentages.firstChild) {
+					percentages.removeChild(percentages.firstChild);
+				}
+
+				//Add a div over each successfully scanned progress bar
+				var percentDom = document.createDocumentFragment();
+				for (var i = 0; i < barList.length; i++) {
+					var tmpEle = document.createElement("div");
+					tmpEle.style.top = "calc(" + ((barList[i][0] / imgPreview.naturalHeight) * 100) + "% - 9vh)";
+					tmpEle.style.left = "calc(" + (barList[i][1] / imgPreview.naturalWidth) * 100 + "% - 2vh)";
+					tmpEle.style.width = "calc(" + (barList[i][2] / imgPreview.naturalWidth) * 100 + "% + 4vh)";
+					tmpEle.setAttribute("data-barlen", barList[i][2]);
+					tmpEle.setAttribute("data-progresslen", barList[i][3]);
+					tmpEle.setAttribute("data-badge", barList[i][5]);
+					if (barList[i][6]) { tmpEle.setAttribute("data-unsure",""); }
+
+					tmpEle.addEventListener("click", showStatsFromList);
+
+					var tmpPercent = document.createElement("div");
+					tmpPercent.textContent = "~" + barList[i][4] + "%";
+					tmpEle.appendChild(tmpPercent);
+					percentDom.appendChild(tmpEle);
+				}
+				percentages.appendChild(percentDom);
+			}
+
+			function showStatsFromList(e) {
+				var barLen = e.target.getAttribute("data-barlen");
+				var progressLen = e.target.getAttribute("data-progresslen");
+				var badgeID = e.target.getAttribute("data-badge");
+				var unsure = e.target.getAttribute("data-unsure");
+
+				if (!barLen || !barLen || !badgeID) { return; }
+
+				if (previouslySelected) { previouslySelected.removeAttribute("class"); }
+				e.target.setAttribute("class", "selected");
+				previouslySelected = e.target;
+
+				document.getElementById("results").style.display = "";
+
+				buildBadgeResults(barLen, progressLen, badgeID, unsure);
+
+				document.getElementById("page").scrollTop = 5000;
 			}
 
 			function closeEnoughRGB(pixelA, pixelB, fringe) {
@@ -328,25 +674,62 @@
 				-webkit-flex-direction: column;
 				flex-direction: column;
 				height: 100%;
+				-webkit-tap-highlight-color: rgba(0,0,0,0);
 			}
 			body, html { height: 100%; }
-			header {  }
+			header { padding-bottom: 2px; }
+			header h3 {
+				padding-right: 12px;
+				display: inline-block;
+				line-height: 42px;
+				margin: 0 auto;
+			}
+			#modeSelect {
+				display: inline-block;
+				vertical-align: top;
+				height: 42px;
+			}
+			#modeSelect > div {
+				display: inline-block;
+				transition: transform .1s;
+				transform-origin: top;
+			}
+			#modeBadge, #modeList {
+				height: 32px;
+				padding: 4px 8px;
+				cursor: pointer;
+				border: 1px solid #44696c;
+				border-width: 0 1px 1px 1px;
+				border-radius: 0 0 7px 7px;
+			}
+			#modeBadge svg, #modeList svg { pointer-events: none; }
+			#modeGap{ width: 6px; }
+			#modeSelect path { fill: #44696c; }
+			#modeSelect > div.selected {
+				background: #388c7e linear-gradient(135deg, #4ab583, #266378);
+				border-color: #388c7e;
+			}
+			#modeSelect > div.selected path { fill: #e4ffde; }
+			#modeSelect > div:active { transform: scale(.9); }
 			footer {
-				color: #97abac;
+				color: #e4ffde;
 				font-weight: 500;
-				letter-spacing: 1px;
-				word-spacing: 2px;
-				font-size: xx-small;
-				font-weight: 500;
+				font-size: x-small;
 				padding: 7px 0;
-				border-top: 1px solid #dcdcdc;
+				background: #44696c linear-gradient(to top, #38575a, #507b7e);
 			}
 			a {
 				padding: 7px 25px;
-				color: #44696c;
-				text-decoration-color: #dcdcdc;
+				color: #e4ffde;
+				text-decoration-color: #94b4a5;
+				/*text-decoration-color: #8ec5ae;*/
 			}
-			h3 { margin: 7px auto 12px; }
+			footer a:active {
+				background: #44696c linear-gradient(to top, #38575a, #44696c);
+				border: 1px solid #507b7e;
+				border-width: 0 1px;
+			}
+			/*h3 { margin: 7px auto 12px; }*/
 			h4 { margin: 5px auto; }
 			#imgPreview {
 				max-height: 50vh;
@@ -356,7 +739,10 @@
 				margin: 15px 0;
 				background: #fff;
 			}
+			body.list #imgPreview { max-height: 95vh; margin: 0; }
 			#imgPreview:not([data-show]) { display: none; }
+			body.list #imgPreview:not([data-show]) + #percentages { overflow: visible; }
+			body.list #imgPreview:not([data-show]) + #percentages::before { content: "May not work well on low res screens"; display: block; width: 300px; margin-left: -150px; margin-bottom: 10px }
 
 			header, footer, #pageContent {
 				-webkit-flex: 0 0 auto;
@@ -386,16 +772,20 @@
 			.fileContainer {
 				overflow: hidden;
 				position: relative;
-				background: linear-gradient(135deg,rgba(162,219,150,1) 0%,rgba(36,204,170,1) 100%);
+				background: #63d3a0 linear-gradient(to left, #24ccaa 5%, #a2db95 95%);
 				color: #fff;
 				font-weight: 500;
 				border-radius: 50px;
 				padding: 12.5px 30px;
 				transition: font-size .1s linear;
 			}
-			.fileContainer:active { font-size: 95%; transition: font-size .1s linear; }
-			.fileContainer::selection { background:transparent; }
-			.fileContainer {
+			.fileContainer:active {
+				font-size: 95%;
+				transition: font-size .1s linear;
+				background: #339ca0 linear-gradient(to left, #1397aa 5%, #54a295 95%);
+			}
+			.fileContainer::selection, header::selection, #percentages div > div { background:transparent; }
+			.fileContainer, header, #percentages div > div {
 				-moz-user-select: -moz-none;
 				-webkit-user-select: none;
 				user-select: none;
@@ -414,17 +804,55 @@
 				top: 0;
 			}
 
-			#pickerHost { 
+			#pickerHost {
 				margin: 0 auto;
 				padding: 12px;
 				overflow: hidden;
 			}
 
-			#results > div { margin-bottom: 15px; }
+			#results > div {
+				margin-bottom: 15px;
+				line-height: 1.5em;
+			}
+
+			#percentages {
+				position: absolute;
+				top: 8px;
+				right: 8px;
+				bottom: 8px;
+				left: 8px;
+				font-size: 2vh;
+				overflow: hidden;
+			}
+			#percentages > div {
+				position: absolute;
+				height: 14vh;
+			}
+			#percentages div > div {
+				position: absolute;
+				top: 5.5vh;
+				left: 2vh;
+				right: 2vh;
+				background: #000;
+				color: #fff;
+				font-weight: bold;
+				border-radius: 4px;
+				pointer-events: none;
+			}
+			#percentages .selected {
+				background: rgba(162, 219, 149, .5);
+				box-shadow: 0 0 5px 5px rgba(162, 219, 149, .5)
+			}
+			#imgPreviewHost {
+				margin: 15px auto;
+				display: table;
+				position: relative;
+				font-size: 0;
+			}
 		</style>
 	</head>
 	<body>
-		<header><h3>Gym badge progress checker</h3></header>
+		<header><h3>Gym badge progress</h3><div id="modeSelect"><div id="modeBadge" class="selected"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126.7487 175.7437" height="32px" width="23px"><path d="M19.5088 87.872l43.8655 60.8217 43.8654-60.8217-43.8654-60.8217zm107.24 0l-63.3745 87.8717L0 87.872 63.3743 0z" fill="#44696c"/></svg></div><div id="modeGap"></div><div id="modeList" class=""><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 95 124.664" height="32px" width="24px"><path d="M25 107.332l-12.5 17.332L0 107.332 12.5 90zm35 0l-12.5 17.332L35 107.332 47.5 90zm35 0l-12.5 17.332L70 107.332 82.5 90zm-70-45L12.5 79.664 0 62.332 12.5 45zm35 0L47.5 79.664 35 62.332 47.5 45zm35 0L82.5 79.664 70 62.332 82.5 45zm-70-45L12.5 34.664 0 17.332 12.5 0zm35 0L47.5 34.664 35 17.332 47.5 0zm35 0L82.5 34.664 70 17.332 82.5 0z" fill="#44696c"/></svg></div></div></header>
 		<section id="page">
 			<div class="spacer"></div>
 			<div id="pageContent">
@@ -432,7 +860,7 @@
 					Select a screen shot to appraise
 					<input id="imgPicker" type="file" accept="image/*" onchange="loadNewImage()" />
 				</label></div>
-				<div id="imgPreviewHost"><img id="imgPreview" alt="user image" /></div>
+				<div id="imgPreviewHost"><img id="imgPreview" alt="user image" /><div id="percentages"></div></div>
 				<div id="results"><span></span><br /><span></span><div></div></div>
 			</div>
 			<div class="spacer"></div>
