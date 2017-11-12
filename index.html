@@ -500,6 +500,10 @@
 						xL = i;
 					} else {
 						//We're at this end of the progress bar
+						if (closeEnoughRGB([imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]], [230, 230, 230])) {
+							//We're probably measuring a medal on the trainer profile
+							return;
+						}
 						break;
 					}
 				}
@@ -519,6 +523,10 @@
 						barLen++;
 					} else {
 						//We're at this end of the progress bar
+						if (closeEnoughRGB([imgSlice[i * 4], imgSlice[i * 4 + 1], imgSlice[i * 4 + 2]], [230, 230, 230])) {
+							//We're probably measuring a medal on the trainer profile
+							return;
+						}
 						break;
 					}
 				}
