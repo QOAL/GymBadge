@@ -4,6 +4,7 @@
 */
 const langStrs = {
 	"en": {
+		"useRightToLeft": false,
 		"title": "Gym badge progress",
 		"appraiseButton": "Select a screenshot to appraise",
 		"failedBadgeTest": "Couldn't work out your badge level.",
@@ -34,7 +35,7 @@ const langStrs = {
 		"neededBXP": "You need about %{neededBXP} more BXP%{errorMargin}",
 		"errorMarginStr": " (±%{errorMargin})",
 
-		"language": "Language",
+		"languages": "Languages",
 		"thisLanguage": "English",
 		"darkMode": "Dark Mode",
 		"trackedGyms": "Tracked Gyms",
@@ -50,7 +51,9 @@ const langStrs = {
 		"nameConfirm": "Is %{newGymName} correct?",
 		"trackedGymCount": "You are tracking 1 gym |||| You are tracking %{smart_count} gyms",
 		"nothingTracked": "You have no tracked gyms",
+		"startDate": "Tracking started: %{date} at %{time}",
 		"lastUpdated": "Last updated: %{date} at %{time}",
+		"levelUpAround": "You should earn the %{badge} badge around %{date}",
 		"enterGymNote": "Enter a note about this gym",
 		"removeDataPoint": "Remove the most recent data point",
 		"deleteGym": "Delete this tracked gym",
