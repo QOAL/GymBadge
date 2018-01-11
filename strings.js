@@ -60,7 +60,7 @@ const langStrs = {
 		"confirmDeleteGym": "Are you sure you want to delete this tracked gym?",
 		"confirmRemoveDataPoint": "Are you sure you want to remove the latest data point?",
 		"translatedBy": "Translated by: %{translators}",
-		"madeByQOAL": "Made By QOAL",
+		"madeByQOAL": "Made by QOAL",
 		"paypalText": "Found this useful? Tip me",
 
 		"translators": "Names of people that did this translation"
