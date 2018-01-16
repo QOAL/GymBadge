@@ -22,6 +22,8 @@
 		<link rel="icon" type="image/png" href="gymbadge-96.png" sizes="96x96">
 		<link rel="icon" type="image/png" href="gymbadge-192.png" sizes="192x192">
 		<link rel="manifest" href="manifest.json">
+		<script type="text/javascript" src="polyglot.js/index.js"></script>
+		<script type="text/javascript" src="strings.js"></script>
 		<script type="text/javascript">
 			/* Quickly hacked together, enjoy the code quality */
 
@@ -37,10 +39,10 @@
 			var results;
 			var percentages;
 			var badgeCols = [
-				["Basic", 500, [220, 220, 220]],
-				["Bronze", 3500, [236, 200, 172]],
-				["Silver", 26000, [185, 213, 223]],
-				["Gold", 0, [255, 212, 88]]
+				["basic", 500, [220, 220, 220]],
+				["bronze", 3500, [236, 200, 172]],
+				["silver", 26000, [185, 213, 223]],
+				["gold", 0, [255, 212, 88]]
 			];
 			var bYoff = 100;
 			var fuzzyMode = false;
@@ -57,6 +59,9 @@
 			var sliceList = {hori:[], vert:[]};
 			var previouslySelected = false; //Used to remember the last selected badge in list appraisal mode
 
+			var language = "en";
+			var polyglot;
+
 			onload = function() {
 				results = document.getElementById("results");
 				percentages = document.getElementById("percentages");
@@ -67,6 +72,34 @@
 
 				document.getElementById("modeBadge").addEventListener("click", changeMode);
 				document.getElementById("modeList").addEventListener("click", changeMode);
+
+				var browserlang = window.navigator.languages || [window.navigator.language || window.navigator.userLanguage];
+				if (langStrs[browserlang[0]]) {
+					language = browserlang[0];
+				} else {
+					language = browserlang[0].substr(0, 2).toLowerCase();
+				}
+
+				if (language && !!langStrs && Polyglot) {
+					changeLanguage();
+				} else {
+					console.error("Unable to continue: Language support is missing");
+				}
+			}
+
+			function changeLanguage() {
+				if (!langStrs[language]) { language = "en"; }
+				if (!polyglot) {
+					polyglot = new Polyglot({"locale": language, phrases: langStrs[language] });
+				} else {
+					polyglot.extend(langStrs[language]);
+					polyglot.locale(language);
+				}
+
+				//Set all the static strings
+				document.getElementById("title").textContent = polyglot.t("title");
+				document.getElementById("pickerHost").children[0].childNodes[0].textContent = polyglot.t("appraiseButton");
+				document.getElementsByTagName("footer")[0].childNodes[0].textContent = polyglot.t("madeByQOAL");
 			}
 
 			function changeMode(e) {
@@ -139,12 +172,12 @@
 				*/
 				var badge = getBadgeColour();
 				if (badge == -1) {
-					setResult("Couldn't work out your badge level.", "Try a different image.");
+					setResult(polyglot.t("failedBadgeTest"), polyglot.t("tryDifferentImage"));
 					return;
 				}
 
 				if (badge == 3) {
-					setResult("That's a lovely gold badge you have, well done.", "");
+					setResult(polyglot.t("goldBadgeComment"), "");
 					return;
 				}
 
@@ -161,13 +194,13 @@
 					}
 				}
 				if (!yPos) {
-					setResult("Failed to find a progress bar.", "Try a different image.");
+					setResult(polyglot.t("failedProgressBarTest"), polyglot.t("tryDifferentImage"));
 					return;
 				}
 
 				var barInfo = getWidthAndPosition(yPos);
 				if (!barInfo) {
-					setResult("Failed to find a progress bar.", "Try a different image.");
+					setResult(polyglot.t("failedProgressBarTest"), polyglot.t("tryDifferentImage"));
 					return;
 				}
 
@@ -189,53 +222,53 @@
 
 				if (unsure == 1) {
 					var tmpEle = document.createElement("small");
-					tmpEle.textContent = "(There may be a Pokémon obscuring the progress bar)";
+					tmpEle.textContent = polyglot.t("obstruction");
 					levelUpDom.appendChild(tmpEle);
 				}
 
 				var tmpEle = document.createElement("h4");
-				tmpEle.textContent = "Here's a few ways you can level your badge up";
+				tmpEle.textContent = polyglot.t("levelUpYourBadge");
 				levelUpDom.appendChild(tmpEle);
 
 				//Raids
 				var raidsToGo = Math.ceil(currentEXP / 1000);
 				var tmpEle = document.createElement("div");
-				tmpEle.textContent = "Complete " + raidsToGo + " raid" + (raidsToGo !== 1 ? "s" : "");
+				tmpEle.textContent = polyglot.t("completeRaids", {smart_count: raidsToGo});
 				levelUpDom.appendChild(tmpEle);
 
 				//Pokémon placements
 				var tmpEle = document.createElement("div");
-				tmpEle.textContent = "Place " + Math.ceil(currentEXP / 100) + " Pokémon in this gym";
+				tmpEle.textContent = polyglot.t("placePokemon", {numPokemon: Math.ceil(currentEXP / 100)});
 				levelUpDom.appendChild(tmpEle);
 
 				//Number of days and hours placed in the gym
 				var hoursToGo = Math.ceil(currentEXP / 60);
 				var daysToGo = Math.floor(hoursToGo / 24);
 				hoursToGo -= daysToGo * 24;
-				var dayStr = daysToGo > 0 ? daysToGo + " day" + (daysToGo !== 1 ? "s" : "") : false;
-				var hourStr = hoursToGo > 0 ? hoursToGo + " hour" + (hoursToGo !== 1 ? "s" : "") : false;
-				var timeArr = [];
-				if (dayStr) { timeArr.push(dayStr); }
-				if (hourStr) { timeArr.push(hourStr); }
+				var dayStr = daysToGo > 0 ? polyglot.t("numDays", {smart_count: daysToGo}) : false;
+				var hourStr = hoursToGo > 0 ? polyglot.t("numHours", {smart_count: hoursToGo}) : false;
+				var timeSpacer = dayStr && hourStr ? polyglot.t("timeSpacer") : "";
 				var tmpEle = document.createElement("div");
-				tmpEle.textContent = "Have a Pokémon in the gym for " + timeArr.join(", ");
+				tmpEle.textContent = polyglot.t("inGymFor", {numDays: dayStr ? dayStr : "", timeSpacer: timeSpacer, numHours: hourStr ? hourStr : ""});
 				levelUpDom.appendChild(tmpEle);
 
 				//1500cp = 15bxp
 				var averageGymCP = 1500;
 				var battlesToGo = Math.ceil(currentEXP / (averageGymCP / 100));
 				var tmpEle = document.createElement("div");
-				tmpEle.textContent = "Defeat " + battlesToGo + " " + averageGymCP + "CP Pokémon in this gym";
+				tmpEle.textContent = polyglot.t("defeatGymPokemon", {numPokemon: battlesToGo, cp: averageGymCP});
 				levelUpDom.appendChild(tmpEle);
 
 				var berriesToGo = Math.ceil(currentEXP / 10);
 				var tmpEle = document.createElement("div");
-				tmpEle.textContent = "Feed Pokémon in this gym " + berriesToGo + (berriesToGo !== 1 ? " berries!" : " berry");
+				tmpEle.textContent = polyglot.t("feedBerries", {smart_count: berriesToGo});
 				levelUpDom.appendChild(tmpEle);
 
+				var unsureStr = unsure == 2 ? polyglot.t("unsure") : "";
+				var errorMarginStr = polyglot.t("errorMarginStr", { errorMargin: Math.ceil(badgeCols[badgeID][1] * (1 / barLen)) });
 				setResult(
-					badgeCols[badgeID][0] + (unsure == 2 ? "?" : "") + " badge at ~" + barPercentish + "%",
-					"You need about " + currentEXP + ' more BXP (' + String.fromCharCode(177) + Math.ceil(badgeCols[badgeID][1] * (1 / barLen)) + ")"
+					polyglot.t("badgePercent", {badge: polyglot.t(badgeCols[badgeID][0]), unsure: unsureStr, percent: barPercentish}),
+					polyglot.t("neededBXP", {neededBXP: currentEXP, errorMargin: errorMarginStr})
 				);
 				results.children[3].appendChild(levelUpDom);
 			}
@@ -860,7 +893,7 @@
 		</style>
 	</head>
 	<body>
-		<header><h3>Gym badge progress</h3><div id="modeSelect"><div id="modeBadge" class="selected"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126.7487 175.7437" height="32px" width="23px"><path d="M19.5088 87.872l43.8655 60.8217 43.8654-60.8217-43.8654-60.8217zm107.24 0l-63.3745 87.8717L0 87.872 63.3743 0z" fill="#44696c"/></svg></div><div id="modeGap"></div><div id="modeList" class=""><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 95 124.664" height="32px" width="24px"><path d="M25 107.332l-12.5 17.332L0 107.332 12.5 90zm35 0l-12.5 17.332L35 107.332 47.5 90zm35 0l-12.5 17.332L70 107.332 82.5 90zm-70-45L12.5 79.664 0 62.332 12.5 45zm35 0L47.5 79.664 35 62.332 47.5 45zm35 0L82.5 79.664 70 62.332 82.5 45zm-70-45L12.5 34.664 0 17.332 12.5 0zm35 0L47.5 34.664 35 17.332 47.5 0zm35 0L82.5 34.664 70 17.332 82.5 0z" fill="#44696c"/></svg></div></div></header>
+		<header><h3 id="title">Gym badge progress</h3><div id="modeSelect"><div id="modeBadge" class="selected"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126.7487 175.7437" height="32px" width="23px"><path d="M19.5088 87.872l43.8655 60.8217 43.8654-60.8217-43.8654-60.8217zm107.24 0l-63.3745 87.8717L0 87.872 63.3743 0z" fill="#44696c"/></svg></div><div id="modeGap"></div><div id="modeList" class=""><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 95 124.664" height="32px" width="24px"><path d="M25 107.332l-12.5 17.332L0 107.332 12.5 90zm35 0l-12.5 17.332L35 107.332 47.5 90zm35 0l-12.5 17.332L70 107.332 82.5 90zm-70-45L12.5 79.664 0 62.332 12.5 45zm35 0L47.5 79.664 35 62.332 47.5 45zm35 0L82.5 79.664 70 62.332 82.5 45zm-70-45L12.5 34.664 0 17.332 12.5 0zm35 0L47.5 34.664 35 17.332 47.5 0zm35 0L82.5 34.664 70 17.332 82.5 0z" fill="#44696c"/></svg></div></div></header>
 		<section id="page">
 			<div class="spacer"></div>
 			<div id="pageContent">
